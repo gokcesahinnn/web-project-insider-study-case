@@ -68,7 +68,7 @@ public class Hooks {
                     firefoxProfile.setPreference("intl.accept_languages", "tr");
                     options.setProfile(firefoxProfile);
                     options.addArguments("-incognito");
-                    driver.set(new RemoteWebDriver(new URL("http://localhost:4444/"), options));
+                    driver.set(new RemoteWebDriver(new URL(baseConfig.getRemoteServerUrl()), options));
                 } catch (Exception e) {
                     LogUtil.logError(browser + " not run. e -> ", e);
                 }
