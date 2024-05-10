@@ -1,0 +1,87 @@
+def reportName = 'Lokal Web Test Report'
+pipeline {
+    agent any
+    parameters {
+        string(name: 'buildName', defaultValue: 'Build_Name', description: 'Build name for this job')
+        choice(name: 'nodeCount', choices: ['1', '2', '3', '4', '5'], description: 'Number of Selenium nodes (min=1, max=5)')
+        choice(name: 'headless', choices: ['true', 'false'], description: '')
+        string(name: 'tagName', defaultValue: '@smoke', description: '')
+        string(name: 'browser', defaultValue: 'remote-chrome', description: '')
+        string(name: 'remoteServerUrl', defaultValue: 'http://selenium-hub:4444/', description: '')
+        gitParameter branch: '',
+                branchFilter: 'origin/(.*)',
+                useRepository: '.*.git',
+                defaultValue: 'main',
+                description: 'Select your branch',
+                name: 'BRANCH',
+                quickFilterEnabled: true,
+                selectedValue: 'DEFAULT',
+                sortMode: 'DESCENDING_SMART',
+                tagFilter: '*',
+                type: 'PT_BRANCH'
+    }
+    environment {
+        BUILD_DESCRIPTION = "Jenkins Pipeline to run the test automation"
+        FULL_BUILD_NAME = "${params.buildName}_${env.BUILD_NUMBER}"
+    }
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    currentBuild.displayName = env.FULL_BUILD_NAME
+                    currentBuild.description = env.BUILD_DESCRIPTION
+                }
+            }
+        }
+        stage('Checkout') {
+            steps {
+                checkout([$class                           : 'GitSCM',
+                          branches                         : [[name: "${params.BRANCH}"]],
+                          doGenerateSubmoduleConfigurations: false,
+                          extensions                       : [],
+                          gitTool                          : 'Default',
+                          submoduleCfg                     : [],
+                          userRemoteConfigs                : [[url: 'https://github.com/gokcesahinnn/web-project-insider-study-case.git']]])
+            }
+        }
+        stage('Running test') {
+            steps {
+                sh 'chmod +x run_test.sh'
+                sh "./run_test.sh ${params.browser} ${params.headless} ${params.tagName} ${params.remoteServerUrl} ${WORKSPACE} ${params.nodeCount}"
+            }
+        }
+        stage('Send Test Results to Webhook') {
+            steps {
+                script {
+                    echo "PATH: \$(cat < $WORKSPACE)"
+                    def filePath = "$WORKSPACE/allure-results/a4631c65-088a-4c7f-9ca2-1641482a55e4-result.json"
+                    def fileContent = readFile(filePath)
+                    def payload = [
+                            buildName      : FULL_BUILD_NAME,
+                            nodeCount      : nodeCount,
+                            headless       : headless,
+                            tagName        : tagName,
+                            browser        : browser,
+                            remoteServerUrl: remoteServerUrl,
+                            fileContent    : fileContent]
+                    def response = httpRequest(contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: groovy.json.JsonOutput.toJson(payload),
+                            url: 'https://webhook.site/2c100172-5578-4541-9d23-61bb1d8e08e5')
+                    if (response.status != 200) {
+                        error "Failed to send test results to webhook. Status: ${response.status}, Response: ${response.content}"
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            allure([includeProperties: false,
+                    jdk              : '',
+                    properties       : [],
+                    reportBuildPolicy: 'ALWAYS',
+                    results          : [[path: "allure-results"]]])
+        }
+    }
+}
